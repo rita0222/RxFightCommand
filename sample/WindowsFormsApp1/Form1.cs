@@ -29,10 +29,10 @@ namespace WindowsFormsApp1
 
     struct KeyInfo
     {
-        public string Key;
+        public char Key;
         public bool State;
         public int Frame;
-        public override string ToString() => Key;
+        public override string ToString() => Key.ToString();
     }
 
     /// 
@@ -55,33 +55,55 @@ namespace WindowsFormsApp1
 
         private int frame = 0;
 
-        private IObservable<KeyInfo> CreateDirectionObserver(string command)
+        private IObservable<KeyInfo> CreateCommandObserver(string command)
         {
-            return _direction
-                .Buffer(command.Length, 1)
-                .Where(b =>
+            IObservable<KeyInfo> inputObserverSelector(char c)
+            {
+                IObservable<KeyInfo> result = null;
+                switch (c)
                 {
-                    for (int i = 1; i < command.Length - 1; ++i)
-                    {
-                        if (b[i + 1].Frame - b[i].Frame >= 16)
-                        {
-                            return false;
-                        }
-                    }
+                    case '1':
+                    case '2':
+                    case '3':
+                    case '4':
+                    case '5':
+                    case '6':
+                    case '7':
+                    case '8':
+                    case '9':
+                        result = _direction;
+                        break;
+                    case 'A':
+                        result = _buttons[0];
+                        break;
+                    case 'B':
+                        result = _buttons[1];
+                        break;
+                    case 'C':
+                        result = _buttons[2];
+                        break;
+                    case 'D':
+                        result = _buttons[3];
+                        break;
+                }
 
-                    return true;
-                })
-                .Where(a =>
-                {
-                    string value = "";
-                    foreach (var i in a)
-                    {
-                        value += i.Key;
-                    }
+                return result.Where(d => d.Key == c && d.State);
+            }
 
-                    return value == command;
-                })
-                .Select(a => a.Last());
+            var observer = inputObserverSelector(command[0]);
+            for (int i = 1; i < command.Length; ++i)
+            {
+                var index = i;
+                observer = observer
+                    .Merge(inputObserverSelector(command[index]))
+                    .Buffer(2, 1)
+                    .Where(b => i == 1 ? true : b[1].Frame - b[0].Frame < 16)
+                    .Where(b => b[0].Key == command[index - 1]
+                             && b[1].Key == command[index])
+                    .Select(b => b[1]);
+            }
+
+            return observer;
         }
 
         /// 
@@ -99,33 +121,39 @@ namespace WindowsFormsApp1
             // 最大化を無効にする
             MaximizeBox = false;
 
-            _direction.Subscribe(d => Debug.WriteLine(d)).AddTo(_cd);
             for (int i = 0; i < 4; ++i)
             {
                 _buttons[i] = new Subject<KeyInfo>();
-                _buttons[i].Subscribe(d => Debug.WriteLine(d + ", " + d.State)).AddTo(_cd);
             }
 
-            var dir236 = CreateDirectionObserver("236");
-            var dir623 = CreateDirectionObserver("623");
-            var dir214 = CreateDirectionObserver("214");
-            var dir41236 = CreateDirectionObserver("41236");
-            var dir2141236 = CreateDirectionObserver("2141236");
-            var dir2363214 = CreateDirectionObserver("2363214");
-
-            var hadohken = dir236
-                .Merge(_buttons[2].Where(b => b.State))
-                .Buffer(2, 1)
-                .Where(b => b[0].Key == "6" && b[1].Key == "C"
-                    && b[1].Frame - b[0].Frame < 16)
+            var hadohken = CreateCommandObserver("236A")
                 .Do(_ => Debug.WriteLine("波動拳！"))
                 .Subscribe().AddTo(_cd);
-            var shoryuken = dir623
-                .Merge(_buttons[2].Where(b => b.State))
-                .Buffer(2, 1)
-                .Where(b => b[0].Key == "3" && b[1].Key == "C"
-                    && b[1].Frame - b[0].Frame < 16)
+            var shoryuken = CreateCommandObserver("623C")
                 .Do(_ => Debug.WriteLine("昇龍拳！"))
+                .Subscribe().AddTo(_cd);
+            var tatsumaki = CreateCommandObserver("214B")
+                .Do(_ => Debug.WriteLine("竜巻旋風脚！"))
+                .Subscribe().AddTo(_cd);
+            var shinkuhadoh = CreateCommandObserver("236236C")
+                .Do(_ => Debug.WriteLine("真空波動拳！"))
+                .Subscribe().AddTo(_cd);
+
+            var yaotome = CreateCommandObserver("2363214C")
+                .Do(_ => Debug.WriteLine("遊びは終わりだ！"))
+                .Subscribe().AddTo(_cd);
+            var powergazer = CreateCommandObserver("21416C")
+                .Do(_ => Debug.WriteLine("パワゲイザーッ！"))
+                .Subscribe().AddTo(_cd);
+            var rasingstorm = CreateCommandObserver("1632143C")
+                .Do(_ => Debug.WriteLine("レイジングストォーム！"))
+                .Subscribe().AddTo(_cd);
+            var jigokugokuraku = CreateCommandObserver("6321463214C")
+                .Do(_ => Debug.WriteLine("チョーシこいてんじゃねぇぞコラァ！"))
+                .Subscribe().AddTo(_cd);
+
+            var shungoku = CreateCommandObserver("AA6BC")
+                .Do(_ => Debug.WriteLine("一瞬千撃！"))
                 .Subscribe().AddTo(_cd);
         }
 
@@ -264,13 +292,13 @@ namespace WindowsFormsApp1
                 if (jState.Y > 300) value -= 3;
                 _direction.OnNext(new KeyInfo
                 {
-                    Key = value.ToString(),
+                    Key = value.ToString()[0],
                     State = true,
                     Frame = frame,
                 });
             }
 
-            var buttonName = new[] { "A", "B", "C", "D" };
+            var buttonName = new[] { 'A', 'B', 'C', 'D' };
             for (int i = 0; i < 4; ++i)
             {
                 if (jState.Buttons[i] != _prevState.Buttons[i])
