@@ -18,6 +18,23 @@ using System.Reactive;
 
 namespace WindowsFormsApp1
 {
+    public static class DisposableExtesntions
+    {
+        public static IDisposable AddTo(this IDisposable d, CompositeDisposable cd)
+        {
+            cd.Add(d);
+            return d;
+        }
+    }
+
+    struct KeyInfo
+    {
+        public string Key;
+        public bool State;
+        public int Frame;
+        public override string ToString() => Key;
+    }
+
     /// 
     /// オリジナルのウィンドウフォームを生成する為のクラス
     /// 
@@ -30,11 +47,42 @@ namespace WindowsFormsApp1
 
         private JoystickState _prevState = new JoystickState();
 
-        private Subject<int> _direction = new Subject<int>();
+        private Subject<KeyInfo> _direction = new Subject<KeyInfo>();
 
-        private Subject<bool>[] _buttons = new Subject<bool>[4];
+        private Subject<KeyInfo>[] _buttons = new Subject<KeyInfo>[4];
 
         private CompositeDisposable _cd = new CompositeDisposable();
+
+        private int frame = 0;
+
+        private IObservable<KeyInfo> CreateDirectionObserver(string command)
+        {
+            return _direction
+                .Buffer(command.Length, 1)
+                .Where(b =>
+                {
+                    for (int i = 1; i < command.Length - 1; ++i)
+                    {
+                        if (b[i + 1].Frame - b[i].Frame >= 16)
+                        {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                })
+                .Where(a =>
+                {
+                    string value = "";
+                    foreach (var i in a)
+                    {
+                        value += i.Key;
+                    }
+
+                    return value == command;
+                })
+                .Select(a => a.Last());
+        }
 
         /// 
         /// コンストラクタ
@@ -51,33 +99,34 @@ namespace WindowsFormsApp1
             // 最大化を無効にする
             MaximizeBox = false;
 
+            _direction.Subscribe(d => Debug.WriteLine(d)).AddTo(_cd);
             for (int i = 0; i < 4; ++i)
             {
-                _buttons[i] = new Subject<bool>();
+                _buttons[i] = new Subject<KeyInfo>();
+                _buttons[i].Subscribe(d => Debug.WriteLine(d + ", " + d.State)).AddTo(_cd);
             }
 
-            var subscribers = new[]
-            {
-                _direction.Subscribe(d => Debug.WriteLine(d)),
-                _buttons[0].Subscribe(d => Debug.WriteLine("[0] " + d)),
-                _buttons[1].Subscribe(d => Debug.WriteLine("[1] " + d)),
-                _buttons[2].Subscribe(d => Debug.WriteLine("[2] " + d)),
-                _buttons[3].Subscribe(d => Debug.WriteLine("[3] " + d)),
-            };
-            foreach(var subscriber in subscribers)
-            {
-                _cd.Add(subscriber);
-            }
+            var dir236 = CreateDirectionObserver("236");
+            var dir623 = CreateDirectionObserver("623");
+            var dir214 = CreateDirectionObserver("214");
+            var dir41236 = CreateDirectionObserver("41236");
+            var dir2141236 = CreateDirectionObserver("2141236");
+            var dir2363214 = CreateDirectionObserver("2363214");
 
-            _direction
-                .Buffer(TimeSpan.FromMilliseconds(500), 4)
-                .Where(p => p.Count >= 3 && p[0] == 2 && p[1] == 3 && p[2] == 6)
-                .Do(_ => Debug.WriteLine("レバーOK"))
-                .Zip(_buttons[2]
-                        .Where(b => b)
-                        .Do(_ => Debug.WriteLine("ボタンOK")),
-                        (_, __) => Unit.Default)
-                .Subscribe(_ => Debug.WriteLine("波動拳！"));
+            var hadohken = dir236
+                .Merge(_buttons[2].Where(b => b.State))
+                .Buffer(2, 1)
+                .Where(b => b[0].Key == "6" && b[1].Key == "C"
+                    && b[1].Frame - b[0].Frame < 16)
+                .Do(_ => Debug.WriteLine("波動拳！"))
+                .Subscribe().AddTo(_cd);
+            var shoryuken = dir623
+                .Merge(_buttons[2].Where(b => b.State))
+                .Buffer(2, 1)
+                .Where(b => b[0].Key == "3" && b[1].Key == "C"
+                    && b[1].Frame - b[0].Frame < 16)
+                .Do(_ => Debug.WriteLine("昇龍拳！"))
+                .Subscribe().AddTo(_cd);
         }
 
         /// 
@@ -213,18 +262,30 @@ namespace WindowsFormsApp1
                 if (jState.X < -300) value -= 1;
                 if (jState.Y < -300) value += 3;
                 if (jState.Y > 300) value -= 3;
-                _direction.OnNext(value);
+                _direction.OnNext(new KeyInfo
+                {
+                    Key = value.ToString(),
+                    State = true,
+                    Frame = frame,
+                });
             }
 
+            var buttonName = new[] { "A", "B", "C", "D" };
             for (int i = 0; i < 4; ++i)
             {
                 if (jState.Buttons[i] != _prevState.Buttons[i])
                 {
-                    _buttons[i].OnNext(jState.Buttons[i]);
+                    _buttons[i].OnNext(new KeyInfo
+                    {
+                        Key = buttonName[i],
+                        State = jState.Buttons[i],
+                        Frame = frame,
+                    });
                 }
             }
 
             _prevState = jState;
+            ++frame;
 
             // 以下の処理は挙動確認用
 

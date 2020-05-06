@@ -18,7 +18,6 @@ namespace WindowsFormsApp1
             Application.SetCompatibleTextRenderingDefault(false);
             using (GameForm form = new GameForm())
             {
-                // メインフォーム処理実行
                 form.Exec();
                 form.Close();
             }
