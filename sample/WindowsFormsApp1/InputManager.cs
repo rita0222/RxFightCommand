@@ -12,14 +12,42 @@ namespace WindowsFormsApp1
     public struct KeyInfo
     {
         public char Key;
-        public bool State;
+        public int Duration;
         public int Frame;
+        public bool State => Duration == 0;
+        public bool IsDirection => '1' <= Key && Key <= '9';
+        public bool HasAttribute(char c)
+        {
+            switch (c)
+            {
+                case '8':
+                    return Key == '7' || Key == '8' || Key == '9';
+                case '2':
+                    return Key == '1' || Key == '2' || Key == '3';
+                case '4':
+                    return Key == '7' || Key == '4' || Key == '1';
+                case '6':
+                    return Key == '9' || Key == '6' || Key == '3';
+            }
+
+            throw new Exception();
+        }
     }
 
     public class InputManager
     {
+        private class DurationInfo
+        {
+            public int Elem8;
+            public int Elem2;
+            public int Elem4;
+            public int Elem6;
+            public int[] Buttons = new int[4];
+        }
+
         private Joystick pad;
         private JoystickState prevState = new JoystickState();
+        private DurationInfo duration = new DurationInfo();
         private int frame = 0;
 
         public InputManager()
@@ -89,6 +117,16 @@ namespace WindowsFormsApp1
         private readonly Subject<KeyInfo> _keyStream = new Subject<KeyInfo>();
         public IObservable<KeyInfo> KeyStream => this._keyStream.AsObservable();
 
+        private static int ToDirection(int x, int y)
+        {
+            var value = 5;
+            if (x > 300) value += 1;
+            if (x < -300) value -= 1;
+            if (y < -300) value += 3;
+            if (y > 300) value -= 3;
+            return value;
+        }
+
         public void Update()
         {
             if (this.pad == null) return;
@@ -101,18 +139,35 @@ namespace WindowsFormsApp1
 
             if (state.X != prevState.X || state.Y != prevState.Y)
             {
-                var value = 5;
-                if (state.X > 300) value += 1;
-                if (state.X < -300) value -= 1;
-                if (state.Y < -300) value += 3;
-                if (state.Y > 300) value -= 3;
+                void OnNextAxisRelease(bool cond, ref int duration, char key)
+                {
+                    if (!cond) return;
+                    this._keyStream.OnNext(new KeyInfo
+                    {
+                        Key = key,
+                        Duration = duration,
+                        Frame = frame,
+                    });
+                    duration = 0;
+                }
+
+                OnNextAxisRelease(prevState.X > 300 && state.X < 300, ref this.duration.Elem6, '6');
+                OnNextAxisRelease(prevState.X < -300 && state.X > -300, ref this.duration.Elem4, '4');
+                OnNextAxisRelease(prevState.Y > 300 && state.Y < 300, ref this.duration.Elem8, '8');
+                OnNextAxisRelease(prevState.Y < -300 && state.Y > -300, ref this.duration.Elem2, '2');
+
                 this._keyStream.OnNext(new KeyInfo
                 {
-                    Key = value.ToString()[0],
-                    State = true,
+                    Key = ToDirection(state.X, state.Y).ToString()[0],
+                    Duration = 0,
                     Frame = frame,
                 });
             }
+
+            if (state.X > 300) this.duration.Elem6++;
+            if (state.X < -300) this.duration.Elem4++;
+            if (state.Y > 300) this.duration.Elem8++;
+            if (state.Y < -300) this.duration.Elem2++;
 
             char[] buttonName = { 'A', 'B', 'C', 'D' };
             for (int i = 0; i < 4; ++i)
@@ -122,9 +177,15 @@ namespace WindowsFormsApp1
                     this._keyStream.OnNext(new KeyInfo
                     {
                         Key = buttonName[i],
-                        State = state.Buttons[i],
+                        Duration = state.Buttons[i] ? 0 : this.duration.Buttons[i],
                         Frame = this.frame,
                     });
+                    this.duration.Buttons[i] = 0;
+                }
+
+                if (state.Buttons[i])
+                {
+                    this.duration.Buttons[i]++;
                 }
             }
 
