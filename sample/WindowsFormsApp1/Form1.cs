@@ -35,24 +35,22 @@ namespace WindowsFormsApp1
 
         private IObservable<KeyInfo> CreateCommandObserver(string command)
         {
-            IObservable<KeyInfo> getInputObserver(char c) =>
-                this.input.KeyStream.Where(k => k.Key == c && k.State);
+            IObservable<KeyInfo> getInputObserver(char c, bool trigger) =>
+                this.input.KeyStream.Where(k => k.Key == c && k.State == trigger);
 
-            var observer = getInputObserver(command[0]);
+            var observer = getInputObserver(command[0], !IsDirection(command[0]));
             for (int i = 1; i < command.Length; ++i)
             {
                 var index = i;
                 if (command[index] != command[index - 1])
                 {
-                    observer = observer.Merge(getInputObserver(command[index]));
+                    observer = observer.Merge(getInputObserver(command[index], true));
                 }
 
                 observer = observer
                     .Buffer(2, 1)
-                    .Where(b => (index == 1 && IsDirection(command[0]))
-                             || b[1].Frame - b[0].Frame < 10)
-                    .Where(b => b[0].Key == command[index - 1]
-                             && b[1].Key == command[index])
+                    .Where(b => b[1].Frame - b[0].Frame < 10)
+                    .Where(b => b[0].Key == command[index - 1] && b[1].Key == command[index])
                     .Select(b => b[1]);
             }
 
@@ -108,7 +106,6 @@ namespace WindowsFormsApp1
                 .Where(k => k.Key == 'D' && k.State)
                 .Buffer(4, 1)
                 .Where(b => b.Last().Frame - b.First().Frame < 30)
-                .Select(b => b.Last())
                 .Do(_ => Debug.WriteLine("やっやっやっ"))
                 .Subscribe().AddTo(_cd);
 
@@ -121,16 +118,15 @@ namespace WindowsFormsApp1
                     var a = b.Select(k => k.Key);
                     return a.Contains('A') && a.Contains('B') && a.Contains('C');
                 })
-                .Select(b => b.Last())
                 .Do(_ => Debug.WriteLine("じゃきーん！"))
                 .Subscribe().AddTo(_cd);
 
-            const string clockWise = "8963214789632";
-            const string counterClockWise = "8741236987412";
+            const string clockWise = "89632147896321478";
+            const string counterClockWise = "87412369874123698";
             var screw = this.input.KeyStream
                 .Where(k => k.IsDirection && k.State)
                 .Buffer(6, 1)
-                .Where(b => b.Max(k => k.Frame) - b.Min(k => k.Frame) < 60)
+                .Where(b => b[5].Frame - b[1].Frame < 50)
                 .Where(b =>
                 {
                     var s = b.Select(k => k.Key.ToString()).Aggregate((a, c) => a + c);
@@ -145,17 +141,40 @@ namespace WindowsFormsApp1
                 .Do(_ => Debug.WriteLine("フンッ！どりゃあ！"))
                 .Subscribe().AddTo(_cd);
 
-            var sonic = this.input.KeyStream
-                .Where(k => k.Key == '4' && k.Duration >= 40)
-                .Merge(this.input.KeyStream.Where(k => k.Key == '6' && k.State))
+            var turnpunch = this.input.KeyStream
+                .Where(k => (k.Key == 'A' || k.Key == 'C') && k.State)
                 .Buffer(2, 1)
-                .Where(b => b.Last().Frame - b.First().Frame < 10)
-                .Where(b => b.First().Key == '4' && b.Last().Key == '6')
+                .Where(b => b.Max(k => k.Frame) - b.Min(k => k.Frame) < 2)
+                .Where(b =>
+                {
+                    var a = b.Select(k => k.Key);
+                    return a.Contains('A') && a.Contains('C');
+                })
                 .Select(b => b.Last())
+                .Merge(this.input.KeyStream.Where(k => (k.Key == 'A' || k.Key == 'C') && !k.State))
+                .Buffer(2, 1)
+                .Where(b => b.Last().Frame - b.First().Frame > 60)
+                .Where(b => b.First().State && !b.Last().State)
+                .Select(b => b.Last())
+                .Do(k => Debug.WriteLine(k.Duration + "フレームためたターンパンチ！"))
+                .Subscribe().AddTo(_cd);
+
+            var sonic = this.input.KeyStream
+                .Where(k => k.HasAttribute('4') && k.State)
+                .Take(1)
+                .Concat(this.input.KeyStream.Where(k => !k.HasAttribute('4') && k.State).Take(1))
+                .Buffer(2, 1)
+                .Repeat()
+                .Where(b => b.Last().Frame - b.First().Frame >= 40)
+                .Select(b => b.Last().Key == '6'
+                                ? Observable.Return(b.Last())
+                                : this.input.KeyStream.Where(
+                                    kk => kk.Key == '6' && kk.State && kk.Frame - b.Last().Frame < 10))
+                .Switch()
                 .Merge(this.input.KeyStream.Where(k => k.Key == 'A' && k.State))
                 .Buffer(2, 1)
                 .Where(b => b.Last().Frame - b.First().Frame < 10)
-                .Where(b => b.First().Key == '6' && b.Last().Key == 'A')
+                .Where(b => b.First().IsDirection && b.Last().Key == 'A')
                 .Select(b => b.Last())
                 .Do(_ => Debug.WriteLine("ソニックブーム！"))
                 .Subscribe().AddTo(_cd);

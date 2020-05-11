@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using SharpDX.DirectInput;
-using System.Reactive.Linq;
 
 namespace WindowsFormsApp1
 {
@@ -36,25 +36,16 @@ namespace WindowsFormsApp1
 
     public class InputManager
     {
-        private class DurationInfo
-        {
-            public int Elem8;
-            public int Elem2;
-            public int Elem4;
-            public int Elem6;
-            public int[] Buttons = new int[4];
-        }
-
         private Joystick pad;
         private JoystickState prevState = new JoystickState();
-        private DurationInfo duration = new DurationInfo();
+        private int directionDuration = 0;
+        private int[] buttonsDuration = new int[4];
         private int frame = 0;
 
         public InputManager()
         {
             DirectInput dinput = new DirectInput();
 
-            // 使用するゲームパッドのID
             var joystickGuid = Guid.Empty;
 
             // ゲームパッドからゲームパッドを取得する
@@ -84,13 +75,13 @@ namespace WindowsFormsApp1
             }
 
             // パッド入力周りの初期化
-            pad = new Joystick(dinput, joystickGuid);
+            this.pad = new Joystick(dinput, joystickGuid);
             // バッファサイズを指定
-            pad.Properties.BufferSize = 128;
+            this.pad.Properties.BufferSize = 128;
 
             // 相対軸・絶対軸の最小値と最大値を
             // 指定した値の範囲に設定する
-            foreach (DeviceObjectInstance deviceObject in pad.GetObjects())
+            foreach (var deviceObject in this.pad.GetObjects())
             {
                 switch (deviceObject.ObjectId.Flags)
                 {
@@ -100,7 +91,7 @@ namespace WindowsFormsApp1
                     // 絶対軸
                     case DeviceObjectTypeFlags.RelativeAxis:
                         // 相対軸
-                        var ir = pad.GetObjectPropertiesById(deviceObject.ObjectId);
+                        var ir = this.pad.GetObjectPropertiesById(deviceObject.ObjectId);
                         if (ir != null)
                         {
                             try
@@ -137,37 +128,25 @@ namespace WindowsFormsApp1
             var state = this.pad.GetCurrentState();
             if (state == null) return;
 
-            if (state.X != prevState.X || state.Y != prevState.Y)
+            if (state.X != this.prevState.X || state.Y != this.prevState.Y)
             {
-                void OnNextAxisRelease(bool cond, ref int duration, char key)
+                this._keyStream.OnNext(new KeyInfo
                 {
-                    if (!cond) return;
-                    this._keyStream.OnNext(new KeyInfo
-                    {
-                        Key = key,
-                        Duration = duration,
-                        Frame = frame,
-                    });
-                    duration = 0;
-                }
-
-                OnNextAxisRelease(prevState.X > 300 && state.X < 300, ref this.duration.Elem6, '6');
-                OnNextAxisRelease(prevState.X < -300 && state.X > -300, ref this.duration.Elem4, '4');
-                OnNextAxisRelease(prevState.Y > 300 && state.Y < 300, ref this.duration.Elem8, '8');
-                OnNextAxisRelease(prevState.Y < -300 && state.Y > -300, ref this.duration.Elem2, '2');
-
+                    Key = ToDirection(this.prevState.X, this.prevState.Y).ToString()[0],
+                    Duration = this.directionDuration,
+                    Frame = this.frame,
+                });
                 this._keyStream.OnNext(new KeyInfo
                 {
                     Key = ToDirection(state.X, state.Y).ToString()[0],
-                    Duration = 0,
-                    Frame = frame,
+                    Duration = this.directionDuration = 0,
+                    Frame = this.frame,
                 });
             }
-
-            if (state.X > 300) this.duration.Elem6++;
-            if (state.X < -300) this.duration.Elem4++;
-            if (state.Y > 300) this.duration.Elem8++;
-            if (state.Y < -300) this.duration.Elem2++;
+            else
+            {
+                ++this.directionDuration;
+            }
 
             char[] buttonName = { 'A', 'B', 'C', 'D' };
             for (int i = 0; i < 4; ++i)
@@ -177,15 +156,15 @@ namespace WindowsFormsApp1
                     this._keyStream.OnNext(new KeyInfo
                     {
                         Key = buttonName[i],
-                        Duration = state.Buttons[i] ? 0 : this.duration.Buttons[i],
+                        Duration = state.Buttons[i] ? 0 : this.buttonsDuration[i],
                         Frame = this.frame,
                     });
-                    this.duration.Buttons[i] = 0;
+                    this.buttonsDuration[i] = 0;
                 }
 
                 if (state.Buttons[i])
                 {
-                    this.duration.Buttons[i]++;
+                    ++this.buttonsDuration[i];
                 }
             }
 
